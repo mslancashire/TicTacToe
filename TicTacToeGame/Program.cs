@@ -179,7 +179,7 @@ public class Game
             //return currentTurn.ValidMoves.ElementAt(rnd.Next(currentTurn.ValidMoves.Count()));
         }
 
-        var evaluatedBoards = Evaluate();
+        var evaluatedBoards = Evaluate(); 
         foreach (var evaluatedBoard in evaluatedBoards)
         {
             _gameIO.LogInfo($"Board {evaluatedBoard.TileCode} has a value to me of {evaluatedBoard.MyValue} and to my opponent of {evaluatedBoard.OpponentValue}.", LogType.Board);
