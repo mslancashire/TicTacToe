@@ -17,7 +17,7 @@ class Player
 {
     static void Main(string[] args)
     {
-        var game = Game.CreateGame(new GameConsoleIO(LogType.Basic));
+        var game = Game.CreateGame(new GameConsoleIO(LogType.None));
 
         // game loop
         while (true)
@@ -126,7 +126,7 @@ public class Game
         var tileSet = Enumerable.Range(0, tileSize);
         Tiles = new(tileSet
             .SelectMany(r => tileSet
-                .Select(c => new Tile(new Position(r, c)))));
+                .Select(c => Tile.CreateFrom(new Position(r, c)))));
 
         var boardSize = 3;
         var boardSet = Enumerable.Range(0, boardSize);
@@ -151,6 +151,9 @@ public class Game
             rowMin = rowMax + 1;
             colMin = 0;
         }
+
+        MainBoard = new Board(Position.MainBoard, _gameIO);
+        MainBoard.AllocateTiles(Boards);
     }
 
     public void ChangeTileOwner(Position position, PlayerType owner)
@@ -172,11 +175,17 @@ public class Game
     {
         var currentTurn = CurrentTurn;
 
-        if (currentTurn.Number == 1)
+        if (currentTurn.Number == 1 && currentTurn.OpponentsLastMove.IsValid() == false)
         {
             return new Position(0, 0); // TL
             //var rnd = new Random();
             //return currentTurn.ValidMoves.ElementAt(rnd.Next(currentTurn.ValidMoves.Count()));
+        }
+
+        var gameEvaluation = MainBoard.Evaluate();
+        foreach (var boardState in gameEvaluation.Tiles)
+        {
+            _gameIO.LogInfo($"Board {boardState.TileCode} has a value to me of {boardState.MyValue} vs {boardState.OpponentValue}", LogType.Board);
         }
 
         var evaluatedBoards = Evaluate();
@@ -184,8 +193,6 @@ public class Game
         {
             _gameIO.LogInfo($"Board {evaluatedBoard.TileCode} has a value to me of {evaluatedBoard.MyValue} and to my opponent of {evaluatedBoard.OpponentValue}.", LogType.Board);
         }
-
-        var moveEvaluator = new MoveEvaluator(evaluatedBoards);
 
         var opponentsSelectedBoard = GetBoard(currentTurn.OpponentsLastMove.GetTileCode());
         if (opponentsSelectedBoard.IsPlayable())
@@ -197,6 +204,7 @@ public class Game
             _gameIO.LogInfo($"Opponent selected an invalid board of {opponentsSelectedBoard.Code}.", LogType.Selection);
         }
 
+        var moveEvaluator = new MoveEvaluator(evaluatedBoards);
         var evaluatedMoves = opponentsSelectedBoard.IsPlayable() ?
             moveEvaluator.EvaluateFor(opponentsSelectedBoard) :
             moveEvaluator.EvaluateAll();
@@ -210,13 +218,13 @@ public class Game
                 .OrderByDescending(em => em.Delta)
                 .FirstOrDefault();
 
-        _gameIO.LogInfo($"Selected move on board {selectedMove.MoveOn} for {selectedMove.MyMove.TileCode}, valued at {selectedMove.Delta} ({selectedMove.MyMove.MyValue} - {selectedMove.OpponentsMove.OpponentValue})", LogType.Selection);
-
         if (selectedMove is null)
         {
             _gameIO.LogInfo($"No best tile found, use first valid.", LogType.Selection);
             return currentTurn.ValidMoves.First();
         }
+
+        _gameIO.LogInfo($"Selected move on board {selectedMove.MoveOn} for {selectedMove.MyMove.TileCode}, valued at {selectedMove.Delta} ({selectedMove.MyMove.MyValue} - {selectedMove.OpponentsMove.OpponentValue})", LogType.Selection);
         
         return selectedMove.MyMove.Tile.Position;
     }
@@ -224,7 +232,7 @@ public class Game
     public void EndTurn()
     {
         var myMove = GetBestMove();
-        myMove.MakeMove(_gameIO);
+        _gameIO.MakeMove(myMove);
         AddMyMove(myMove);
 
         _gameIO.LogInfo($"My move => `{myMove.GetTileCode()}`, `{myMove}`", LogType.Selection);
@@ -232,7 +240,7 @@ public class Game
     }
 }
 
-public record Board
+public record Board : ITile
 {
     private readonly IGameIO _gameIO;
 
@@ -242,10 +250,10 @@ public record Board
 
         Code = position.GetTileCode();
         Position = position;
-        WinConditions = [.. Settings.WinConditions.Select(w => w with { })];
+        WinConditions = [];
     }
 
-    public HashSet<WinCondition> WinConditions { get; private init; }
+    public IEnumerable<WinCondition> WinConditions { get; private set; }
 
     public static Func<WinCondition, bool> PlayableCondition()
         => wc => wc.IsPlayable();
@@ -284,10 +292,13 @@ public record Board
     public int RemainingWinConditionsFor(PlayerType owner)
         => WinConditions.Count(wc => wc.IsStillWinnableBy(owner));
 
-    public HashSet<Tile> Tiles { get; private set; }
+    public HashSet<ITile> Tiles { get; private set; }
 
-    public void AllocateTiles(IEnumerable<Tile> tiles)
-        => Tiles = [.. tiles];
+    public void AllocateTiles(IEnumerable<ITile> tiles)
+    {
+        Tiles = [.. tiles];
+        WinConditions = Settings.WinConditions.Select(wc => new WinCondition(Tiles.Where(t => wc.Contains(t.Code))));
+    }
 
     public void ChangeTileOwner(Position position, PlayerType owner)
         => ChangeTileOwner(position.GetTileCode(), owner);
@@ -297,12 +308,28 @@ public record Board
         Tiles
             .Single(t => t.Code == tileCode)
             .ChangeOwner(owner);
+    }
 
-        foreach (var winCondition in WinConditions)
+    public PlayerType Owner
+    {
+        get
         {
-            winCondition.ChangeOwner(tileCode, owner);
+            if (WinConditions.Any(wc => wc.WonBy(PlayerType.Me)))
+            {
+                return PlayerType.Me;
+            }
+
+            if (WinConditions.Any(wc => wc.WonBy(PlayerType.Opponent)))
+            {
+                return PlayerType.Opponent;
+            }
+
+            return PlayerType.None;
         }
     }
+
+    public void ChangeOwner(PlayerType playerType)
+        => throw new NotSupportedException("A boards ownership is controlled by its internal tiles.");
 
     public BoardValue Evaluate()
     {
@@ -311,7 +338,7 @@ public record Board
         foreach (var tile in Tiles.Where(t => t.Owner == PlayerType.None))
         {
             var currentRatings = PlayableWinConditions()
-                .Where(wc => wc.Conditions.Contains(tile.Code))
+                .Where(wc => wc.Tiles.Contains(tile))
                 .Select(wc => wc.Rating());
 
             var tileValue = TileValue.Empty(tile);
@@ -326,13 +353,14 @@ public record Board
 
 public record Position(int Row, int Col)
 {
-    public void MakeMove(IGameIO gameIO)
-    {
-        gameIO.IssueInstruction($"{Row} {Col}");
-    }
+    public static Position Invalid
+        => new(-1, -1);
+
+    public static Position MainBoard
+        => new(50, 50);
 
     public bool IsValid()
-     => Row > -1 && Col > -1;
+        => this != Invalid;
 
     public bool For(int rowMin, int rowMax, int colMin, int colMax)
     {
@@ -361,13 +389,30 @@ public record Position(int Row, int Col)
     }
 };
 
-public record Tile
+public interface ITile
 {
-    public Tile(Position position)
+    TileCode Code { get; }
+
+    PlayerType Owner { get; }
+
+    Position Position { get; }
+
+    void ChangeOwner(PlayerType owner);
+}
+
+public record Tile : ITile
+{
+    public static Tile CreateFrom(Position position)
+        => new(position, position.GetTileCode());
+
+    public static Tile CreateFrom(TileCode tileCode)
+        => new(Position.Invalid, tileCode);
+
+    private Tile(Position position, TileCode tileCode)
     {
         Position = position;
         Owner = PlayerType.None;
-        Code = position.GetTileCode();
+        Code = tileCode;
     }
 
     public TileCode Code { get; }
@@ -387,13 +432,16 @@ public record Tile
     public PlayerType Owner { get; private set; }
 };
 
-public record WinCondition(TileCode[] Conditions)
+public record WinCondition(IEnumerable<ITile> Tiles)
 {
-    public int Free { get; private set; } = 3;
+    public bool Contains(TileCode tileCode) =>
+        Tiles.Any(t => t.Code == tileCode);
 
-    public int Mine { get; private set; } = 0;
+    public int Free => Tiles.Count(c => c.Owner == PlayerType.None);
 
-    public int Opponents { get; private set; } = 0;
+    public int Mine => Tiles.Count(c => c.Owner == PlayerType.Me);
+
+    public int Opponents => Tiles.Count(c => c.Owner == PlayerType.Opponent);
 
     public PlayerValue Rating()
     {
@@ -438,16 +486,6 @@ public record WinCondition(TileCode[] Conditions)
         CheckWinState(has => has >= 0, owner) &&
         CheckWinState(has => has == 0, owner.GetOtherPlayer());
 
-    public bool WinnableInOneMoveBy(PlayerType owner)
-    {
-        if (IsStillWinnable() == false)
-        {
-            return false;
-        }
-
-        return CheckWinState(has => has == 2, owner);
-    }
-
     public bool WonBy(PlayerType owner)
     {
         if (Free > 0)
@@ -458,36 +496,14 @@ public record WinCondition(TileCode[] Conditions)
         return CheckWinState(has => has == 3, owner);
     }
 
-    private bool CheckWinState(Func<int, bool> requirment, PlayerType owner)
+    private bool CheckWinState(Func<int, bool> requirement, PlayerType owner)
     {
         return owner switch
         {
-            PlayerType.Me => requirment(Mine),
-            PlayerType.Opponent => requirment(Opponents),
+            PlayerType.Me => requirement(Mine),
+            PlayerType.Opponent => requirement(Opponents),
             _ => throw new Exception($"Owner of {owner} does not have a win condition."),
         };
-    }
-
-    public void ChangeOwner(TileCode tileCode, PlayerType owner)
-    {
-        if (Conditions.Contains(tileCode) == false)
-        {
-            return;
-        }
-
-        Free--;
-
-        switch (owner)
-        {
-            case PlayerType.Me:
-                Mine++;
-                break;
-            case PlayerType.Opponent:
-                Opponents++;
-                break;
-            default:
-                throw new Exception($"Owner of {owner} is not a win condition.");
-        }
     }
 }
 
@@ -500,7 +516,7 @@ public record PlayerValue(int MyValue, int OpponentsValue)
         => new(0, 0);
 
     public static PlayerValue NotPlayable()
-        => new(0, 0);
+        => new(-500, 500);
 
     public static PlayerValue NotWinnableByEitherPlayer()
         => new(0, 0);
@@ -524,9 +540,9 @@ public record PlayerValue(int MyValue, int OpponentsValue)
     }
 };
 
-public record TileValue(TileCode TileCode, Tile Tile)
+public record TileValue(TileCode TileCode, ITile Tile)
 {
-    public static TileValue Empty(Tile tile)
+    public static TileValue Empty(ITile tile)
         => new(tile.Code, tile);
 
     public int MyValue { get; private set; } = 0;
@@ -583,13 +599,9 @@ public record MoveEvaluator
     {
         var evaluatedMoves = new List<MoveValue>();
 
-        foreach (var board in _evaluatedBoards.Values)
+        foreach (var evaluatedBoard in _evaluatedBoards.Values)
         {
-            var myBestMove = board.BestFor(PlayerType.Me);
-            var oppenentsSelectedBoard = SelectBoardFor(myBestMove.TileCode, PlayerType.Opponent);
-            var oppenentsBestNextMove = oppenentsSelectedBoard.BestFor(PlayerType.Opponent);
-
-            evaluatedMoves.Add(new MoveValue(board.TileCode, myBestMove, oppenentsBestNextMove));
+            evaluatedMoves.AddRange(EvaluateFor(evaluatedBoard.Board));
         }
 
         return evaluatedMoves;
@@ -619,7 +631,7 @@ public record MoveEvaluator
         }
 
         return _evaluatedBoards
-            .OrderByDescending(eb => eb.Value.OpponentValue)
+            .OrderByDescending(eb =>  eb.Value.OpponentValue - eb.Value.MyValue)
             .First()
             .Value;
     }
@@ -641,7 +653,12 @@ public static class Helper
 
     public static TileCode GetTileCode(this Position tilePosition)
     {
-        if (tilePosition.Row == -1 || tilePosition.Col == -1)
+        if (tilePosition == Position.Invalid)
+        {
+            return TileCode.None;
+        }
+
+        if (tilePosition == Position.MainBoard)
         {
             return TileCode.None;
         }
@@ -664,16 +681,16 @@ public static class Helper
 
 public class Settings
 {
-    public static readonly List<WinCondition> WinConditions =
+    public static readonly TileCode[][] WinConditions =
     [
-        new([TileCode.TL, TileCode.TM, TileCode.TR]),
-        new([TileCode.ML, TileCode.MM, TileCode.MR]),
-        new([TileCode.BL, TileCode.BM, TileCode.BR]),
-        new([TileCode.TL, TileCode.ML, TileCode.BL]),
-        new([TileCode.TM, TileCode.MM, TileCode.BM]),
-        new([TileCode.TR, TileCode.MR, TileCode.BR]),
-        new([TileCode.TL, TileCode.MM, TileCode.BR]),
-        new([TileCode.TR, TileCode.MM, TileCode.BL]),
+        [TileCode.TL, TileCode.TM, TileCode.TR],
+        [TileCode.ML, TileCode.MM, TileCode.MR],
+        [TileCode.BL, TileCode.BM, TileCode.BR],
+        [TileCode.TL, TileCode.ML, TileCode.BL],
+        [TileCode.TM, TileCode.MM, TileCode.BM],
+        [TileCode.TR, TileCode.MR, TileCode.BR],
+        [TileCode.TL, TileCode.MM, TileCode.BR],
+        [TileCode.TR, TileCode.MM, TileCode.BL],
     ];
 }
 
@@ -707,6 +724,11 @@ public class GameConsoleIO : IGameIO
         _enabledLogs = enabledLogs;
     }
 
+    public void MakeMove(Position move)
+    {
+        IssueInstruction($"{move.Row} {move.Col}");
+    }
+
     public void IssueInstruction(string instruction)
         => Console.WriteLine(instruction);
 
@@ -726,6 +748,8 @@ public class GameConsoleIO : IGameIO
 
 public interface IGameIO
 {
+    void MakeMove(Position move);
+
     string ReadInput();
 
     void IssueInstruction(string instruction);

@@ -9,7 +9,7 @@ public class TileTests
         var position = new Position(4, 4);
         
         // act
-        var sut = new Tile(position);
+        var sut = Tile.CreateFrom(position);
 
         // assert
         sut.Code.Should().Be(TileCode.MM);
@@ -21,7 +21,7 @@ public class TileTests
     public void Tile_ownership_should_change_correctly()
     {
         // arrange
-        var sut = new Tile(new Position(4, 4));
+        var sut = Tile.CreateFrom(new Position(4, 4));
         
         // act
         sut.ChangeOwner(PlayerType.Me);
