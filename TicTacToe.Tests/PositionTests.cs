@@ -38,19 +38,42 @@ public class PositionTests
         sut.IsValid().Should().Be(isValid);
     }
 
-    [Theory]
-    [InlineData(1, 1, "1 1")]
-    [InlineData(4, 5, "4 5")]
-    public void Position_should_issue_correct_move_instruction_to_game_io(int row, int col, string expectedInstruction)
+    [Fact]
+    public void Position_should_be_invalid_when_row_and_col_are_minus_1()
     {
         // arrange
-        var mockIO = new Mock<IGameIO>();
-        var sut = new Position(row, col);
+        var sut = new Position(-1, -1);
 
         // act
-        sut.MakeMove(mockIO.Object);
-        
+        var isValid = sut.IsValid();
+
         // assert
-        mockIO.Verify(io => io.IssueInstruction(It.Is<string>(issuedInstruction => issuedInstruction == expectedInstruction)), Times.Once);
+        isValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Position_should_be_valid_when_row_and_col_are_valid()
+    {
+        // arrange
+        var sut = new Position(0, 1);
+
+        // act
+        var isValid = sut.IsValid();
+
+        // assert
+        isValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Position_should_be_valid_when_position_is_for_main_board()
+    {
+        // arrange
+        var sut = Position.MainBoard;
+
+        // act
+        var isValid = sut.IsValid();
+
+        // assert
+        isValid.Should().BeTrue();
     }
 }

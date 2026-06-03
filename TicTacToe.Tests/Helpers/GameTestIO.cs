@@ -14,6 +14,11 @@ internal class GameTestIO : IGameIO
         _logger = logger;
     }
 
+    public void MakeMove(Position position)
+    {
+        IssueInstruction($"{position.Row} {position.Col}");
+    }
+
     public void SetInput(string input)
         => _reader = new StringReader(input);
 
