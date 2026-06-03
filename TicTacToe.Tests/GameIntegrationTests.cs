@@ -124,10 +124,10 @@ public class GameIntegrationTests : BaseTestForGame
         board.IsPlayable().Should().BeTrue();
         board.IsFull().Should().BeFalse();
 
-        var relevantWCs = board.WinConditions.Where(wc => wc.Conditions.Contains(move.GetTileCode()));
+        var relevantWCs = board.WinConditions.Where(wc => wc.Contains(move.GetTileCode()));
         relevantWCs.Should().NotBeEmpty();
         relevantWCs.Should().HaveCount(4);
-        relevantWCs.Should().AllSatisfy(wc => wc.Conditions.Should().HaveCount(3));
+        relevantWCs.Should().AllSatisfy(wc => wc.Tiles.Should().HaveCount(3));
         relevantWCs.Should().AllSatisfy(wc => wc.Free.Should().Be(2));
         relevantWCs.Should().AllSatisfy(wc => wc.Mine.Should().Be(1));
         relevantWCs.Should().AllSatisfy(wc => wc.Opponents.Should().Be(0));

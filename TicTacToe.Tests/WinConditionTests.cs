@@ -2,13 +2,20 @@
 
 public class WinConditionTests
 {
+    private readonly ITile _tileML = Tile.CreateFrom(TileCode.ML);
+    private readonly ITile _tileMM = Tile.CreateFrom(TileCode.MM);
+    private readonly ITile _tileMR = Tile.CreateFrom(TileCode.MR);
+
+    private WinCondition CreateSUT()
+        => new([_tileML, _tileMM, _tileMR]);
+
     [Fact]
     public void WinCondition_should_have_correct_state_given_basic_setup()
     {
         // arrange
 
         // act
-        var sut = new WinCondition([TileCode.ML, TileCode.MM, TileCode.MR]);
+        var sut = CreateSUT();
 
         // assert
         sut.Free.Should().Be(3);
@@ -20,11 +27,9 @@ public class WinConditionTests
         sut.IsStillWinnableBy(PlayerType.Me).Should().BeTrue();
         sut.IsStillWinnableBy(PlayerType.Opponent).Should().BeTrue();
 
-        sut.WinnableInOneMoveBy(PlayerType.Me).Should().BeFalse();
-        sut.WinnableInOneMoveBy(PlayerType.Opponent).Should().BeFalse();
-
         sut.WonBy(PlayerType.Me).Should().BeFalse();
         sut.WonBy(PlayerType.Opponent).Should().BeFalse();
+        
         var rating = sut.Rating();
         rating.MyValue.Should().Be(1);
         rating.OpponentsValue.Should().Be(1);
@@ -34,12 +39,12 @@ public class WinConditionTests
     public void WinCondition_should_have_correct_state_given_i_own_all_tiles()
     {
         // arrange
-        var sut = new WinCondition([TileCode.ML, TileCode.MM, TileCode.MR]);
+        var sut = CreateSUT();
 
         // act
-        sut.ChangeOwner(TileCode.ML, PlayerType.Me);
-        sut.ChangeOwner(TileCode.MM, PlayerType.Me);
-        sut.ChangeOwner(TileCode.MR, PlayerType.Me);
+        _tileML.ChangeOwner(PlayerType.Me);
+        _tileMM.ChangeOwner(PlayerType.Me);
+        _tileMR.ChangeOwner(PlayerType.Me);
 
         // assert
         sut.Free.Should().Be(0);
@@ -51,11 +56,9 @@ public class WinConditionTests
         sut.IsStillWinnableBy(PlayerType.Me).Should().BeFalse();
         sut.IsStillWinnableBy(PlayerType.Opponent).Should().BeFalse();
 
-        sut.WinnableInOneMoveBy(PlayerType.Me).Should().BeFalse();
-        sut.WinnableInOneMoveBy(PlayerType.Opponent).Should().BeFalse();
-
         sut.WonBy(PlayerType.Me).Should().BeTrue();
         sut.WonBy(PlayerType.Opponent).Should().BeFalse();
+        
         var rating = sut.Rating();
         rating.MyValue.Should().Be(0);
         rating.OpponentsValue.Should().Be(0);
@@ -65,12 +68,12 @@ public class WinConditionTests
     public void WinCondition_should_have_correct_state_given_opponent_owns_all_tiles()
     {
         // arrange
-        var sut = new WinCondition([TileCode.ML, TileCode.MM, TileCode.MR]);
+        var sut = CreateSUT();
 
         // act
-        sut.ChangeOwner(TileCode.ML, PlayerType.Opponent);
-        sut.ChangeOwner(TileCode.MM, PlayerType.Opponent);
-        sut.ChangeOwner(TileCode.MR, PlayerType.Opponent);
+        _tileML.ChangeOwner(PlayerType.Opponent);
+        _tileMM.ChangeOwner(PlayerType.Opponent);
+        _tileMR.ChangeOwner(PlayerType.Opponent);
 
         // assert
         sut.Free.Should().Be(0);
@@ -81,9 +84,6 @@ public class WinConditionTests
 
         sut.IsStillWinnableBy(PlayerType.Me).Should().BeFalse();
         sut.IsStillWinnableBy(PlayerType.Opponent).Should().BeFalse();
-
-        sut.WinnableInOneMoveBy(PlayerType.Me).Should().BeFalse();
-        sut.WinnableInOneMoveBy(PlayerType.Opponent).Should().BeFalse();
 
         sut.WonBy(PlayerType.Me).Should().BeFalse();
         sut.WonBy(PlayerType.Opponent).Should().BeTrue();
@@ -96,11 +96,11 @@ public class WinConditionTests
     public void WinCondition_should_have_correct_state_given_mixed_ownership()
     {
         // arrange
-        var sut = new WinCondition([TileCode.ML, TileCode.MM, TileCode.MR]);
+        var sut = CreateSUT();
 
         // act
-        sut.ChangeOwner(TileCode.ML, PlayerType.Me);
-        sut.ChangeOwner(TileCode.MM, PlayerType.Opponent);
+        _tileML.ChangeOwner(PlayerType.Me);
+        _tileMM.ChangeOwner(PlayerType.Opponent);
 
         // assert
         sut.Free.Should().Be(1);
@@ -112,11 +112,9 @@ public class WinConditionTests
         sut.IsStillWinnableBy(PlayerType.Me).Should().BeFalse();
         sut.IsStillWinnableBy(PlayerType.Opponent).Should().BeFalse();
 
-        sut.WinnableInOneMoveBy(PlayerType.Me).Should().BeFalse();
-        sut.WinnableInOneMoveBy(PlayerType.Opponent).Should().BeFalse();
-
         sut.WonBy(PlayerType.Me).Should().BeFalse();
         sut.WonBy(PlayerType.Opponent).Should().BeFalse();
+        
         var rating = sut.Rating();
         rating.MyValue.Should().Be(0);
         rating.OpponentsValue.Should().Be(0);
@@ -126,11 +124,11 @@ public class WinConditionTests
     public void WinCondition_should_have_correct_state_given_i_own_2_tiles()
     {
         // arrange
-        var sut = new WinCondition([TileCode.ML, TileCode.MM, TileCode.MR]);
+        var sut = CreateSUT();
 
         // act
-        sut.ChangeOwner(TileCode.ML, PlayerType.Me);
-        sut.ChangeOwner(TileCode.MM, PlayerType.Me);
+        _tileML.ChangeOwner(PlayerType.Me);
+        _tileMM.ChangeOwner(PlayerType.Me);
 
         // assert
         sut.Free.Should().Be(1);
@@ -140,11 +138,9 @@ public class WinConditionTests
         sut.IsStillWinnableBy(PlayerType.Me).Should().BeTrue();
         sut.IsStillWinnableBy(PlayerType.Opponent).Should().BeFalse();
 
-        sut.WinnableInOneMoveBy(PlayerType.Me).Should().BeTrue();
-        sut.WinnableInOneMoveBy(PlayerType.Opponent).Should().BeFalse();
-
         sut.WonBy(PlayerType.Me).Should().BeFalse();
         sut.WonBy(PlayerType.Opponent).Should().BeFalse();
+        
         var rating = sut.Rating();
         rating.MyValue.Should().Be(200);
         rating.OpponentsValue.Should().Be(20);
@@ -154,11 +150,11 @@ public class WinConditionTests
     public void WinCondition_should_have_correct_state_given_opponent_owns_2_tiles()
     {
         // arrange
-        var sut = new WinCondition([TileCode.ML, TileCode.MM, TileCode.MR]);
+        var sut = CreateSUT();
 
         // act
-        sut.ChangeOwner(TileCode.ML, PlayerType.Opponent);
-        sut.ChangeOwner(TileCode.MM, PlayerType.Opponent);
+        _tileML.ChangeOwner(PlayerType.Opponent);
+        _tileMM.ChangeOwner(PlayerType.Opponent);
 
         // assert
         sut.Free.Should().Be(1);
@@ -168,11 +164,9 @@ public class WinConditionTests
         sut.IsStillWinnableBy(PlayerType.Me).Should().BeFalse();
         sut.IsStillWinnableBy(PlayerType.Opponent).Should().BeTrue();
 
-        sut.WinnableInOneMoveBy(PlayerType.Me).Should().BeFalse();
-        sut.WinnableInOneMoveBy(PlayerType.Opponent).Should().BeTrue();
-
         sut.WonBy(PlayerType.Me).Should().BeFalse();
         sut.WonBy(PlayerType.Opponent).Should().BeFalse();
+        
         var rating = sut.Rating();
         rating.MyValue.Should().Be(20);
         rating.OpponentsValue.Should().Be(200);
