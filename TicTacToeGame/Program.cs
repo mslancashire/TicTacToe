@@ -17,7 +17,7 @@ class Player
 {
     static void Main(string[] args)
     {
-        var game = Game.CreateGame(new GameConsoleIO(LogType.All));
+        var game = Game.CreateGame(new GameConsoleIO(LogType.Basic));
 
         // game loop
         while (true)
@@ -116,6 +116,8 @@ public class Game
 
     public HashSet<Tile> Tiles { get; private set; }
 
+    public Board MainBoard { get; private set; }
+
     public List<Board> Boards { get; private set; }
 
     private void BuildBoards()
@@ -157,22 +159,14 @@ public class Game
     public Board GetBoard(Position position)
         => Boards.First(b => b.Tiles.Any(t => t.Position == position));
 
-    public IEnumerable<(Board BestBoard, (int Rating, Tile BestTile) RatedTile)> RatedBoards()
-        => Boards.Select(b => (b, b.GetBestTile()));
+    public Board GetBoard(TileCode tileCode)
+        => Boards.First(b => b.Code == tileCode);
 
-    private static readonly List<WinCondition> _winConditions =
-    [
-        new([TileCode.TL, TileCode.TM, TileCode.TR]),
-        new([TileCode.ML, TileCode.MM, TileCode.MR]),
-        new([TileCode.BL, TileCode.BM, TileCode.BR]),
-        new([TileCode.TL, TileCode.ML, TileCode.BL]),
-        new([TileCode.TM, TileCode.MM, TileCode.BM]),
-        new([TileCode.TR, TileCode.MR, TileCode.BR]),
-        new([TileCode.TL, TileCode.MM, TileCode.BR]),
-        new([TileCode.TR, TileCode.MM, TileCode.BL]),
-    ];
+    public IEnumerable<Board> PlayableBoards()
+        => Boards.Where(b => b.IsPlayable());
 
-    public static List<WinCondition> Winners = _winConditions;
+    public IEnumerable<BoardValue> Evaluate()
+        => PlayableBoards().Select(b => b.Evaluate());
 
     public Position GetBestMove()
     {
@@ -180,56 +174,51 @@ public class Game
 
         if (currentTurn.Number == 1)
         {
-            return new Position(4, 4);
+            return new Position(0, 0); // TL
+            //var rnd = new Random();
+            //return currentTurn.ValidMoves.ElementAt(rnd.Next(currentTurn.ValidMoves.Count()));
         }
 
-        var ratedBoards = RatedBoards().ToList();
-        foreach (var ratedBoard in ratedBoards)
+        var evaluatedBoards = Evaluate();
+        foreach (var evaluatedBoard in evaluatedBoards)
         {
-            _gameIO.LogInfo($"Board {ratedBoard.BestBoard.Code} has best tile of {ratedBoard.RatedTile.BestTile?.Code} rated at {ratedBoard.RatedTile.Rating}.", LogType.Board);
+            _gameIO.LogInfo($"Board {evaluatedBoard.TileCode} has a value to me of {evaluatedBoard.MyValue} and to my opponent of {evaluatedBoard.OpponentValue}.", LogType.Board);
         }
 
-        var board = Boards.First(b => b.Code == currentTurn.OpponentsLastMove.GetTileCode());
-        var validBoard = board.Tiles.Any(t => currentTurn.ValidMoves.Contains(t.Position));
+        var moveEvaluator = new MoveEvaluator(evaluatedBoards);
 
-        if (validBoard == false)
+        var opponentsSelectedBoard = GetBoard(currentTurn.OpponentsLastMove.GetTileCode());
+        if (opponentsSelectedBoard.IsPlayable())
         {
-            var bestRatedBoard = ratedBoards
-                .OrderByDescending(rb => rb.RatedTile.Rating)
-                .First();
-
-            _gameIO.LogInfo($"Opponent selected an invalid board of {board.Code}.", LogType.Selection);
-
-            return bestRatedBoard.RatedTile.BestTile.Position;
+            _gameIO.LogInfo($"Opponent selected a valid board of {opponentsSelectedBoard.Code}.", LogType.Selection);
+        }
+        else
+        {
+            _gameIO.LogInfo($"Opponent selected an invalid board of {opponentsSelectedBoard.Code}.", LogType.Selection);
         }
 
-        _gameIO.LogInfo($"Opponent selected a valid board of {board.Code}.", LogType.Selection);
-        var (rating, bestTile) = board.GetBestTile();
-        if (bestTile is null)
+        var evaluatedMoves = opponentsSelectedBoard.IsPlayable() ?
+            moveEvaluator.EvaluateFor(opponentsSelectedBoard) :
+            moveEvaluator.EvaluateAll();
+
+        foreach (var evaluatedMove in evaluatedMoves)
         {
-            _gameIO.LogInfo($"No best tile found for board {board.Code}, use first valid.", LogType.Selection);
+            _gameIO.LogInfo($"Move made on board {evaluatedMove.MoveOn} for {evaluatedMove.MyMove.TileCode}, valued at {evaluatedMove.Delta} ({evaluatedMove.MyMove.MyValue} - {evaluatedMove.OpponentsMove.OpponentValue}).", LogType.Selection);
+        }
+
+        var selectedMove = evaluatedMoves
+                .OrderByDescending(em => em.Delta)
+                .FirstOrDefault();
+
+        _gameIO.LogInfo($"Selected move on board {selectedMove.MoveOn} for {selectedMove.MyMove.TileCode}, valued at {selectedMove.Delta} ({selectedMove.MyMove.MyValue} - {selectedMove.OpponentsMove.OpponentValue})", LogType.Selection);
+
+        if (selectedMove is null)
+        {
+            _gameIO.LogInfo($"No best tile found, use first valid.", LogType.Selection);
             return currentTurn.ValidMoves.First();
         }
-
-        // if we have a winning move or a blocking move, use it even if the opponent selected the board
-        if (rating > 50)
-        {
-            _gameIO.LogInfo($"Using winning/blocking move of {bestTile.Code} for rated at {rating}.", LogType.Selection);
-            return bestTile.Position;
-        }
-
-        // avoid using a move that puts the opponent in a win / blocking position
-        foreach (var ratedBoard in ratedBoards.OrderBy(rb => rb.RatedTile.Rating))
-        {
-            if (currentTurn.ValidMoves.Contains(ratedBoard.BestBoard.Position))
-            {
-                _gameIO.LogInfo($"Using best board selection of {ratedBoard.BestBoard.Code}, rated at {ratedBoard.RatedTile.Rating} for {ratedBoard.RatedTile.BestTile.Code} to avoid opponent win/block.", LogType.Selection);
-                return ratedBoard.RatedTile.BestTile.Position;
-            }
-        }
-
-        _gameIO.LogInfo($"No good move found, using first valid.", LogType.Selection);
-        return currentTurn.ValidMoves.First();
+        
+        return selectedMove.MyMove.Tile.Position;
     }
 
     public void EndTurn()
@@ -253,14 +242,47 @@ public record Board
 
         Code = position.GetTileCode();
         Position = position;
-        _winConditions = [.. Game.Winners.Select(w => w with { })];
+        WinConditions = [.. Settings.WinConditions.Select(w => w with { })];
     }
 
-    private readonly HashSet<WinCondition> _winConditions;
+    public HashSet<WinCondition> WinConditions { get; private init; }
+
+    public static Func<WinCondition, bool> PlayableCondition()
+        => wc => wc.IsPlayable();
+
+    public static Func<WinCondition, bool> WinnableCondition()
+        => wc => wc.IsStillWinnable();
+
+    public IEnumerable<WinCondition> PlayableWinConditions()
+        => WinConditions.Where(PlayableCondition());
+
+    public IEnumerable<WinCondition> WinnableConditions()
+        => WinConditions.Where(WinnableCondition());
 
     public TileCode Code { get; }
 
     public Position Position { get; }
+
+    public bool BeenWon()
+        => WinConditions.Any(wc => wc.WonBy(PlayerType.Me) || wc.WonBy(PlayerType.Opponent));
+
+    public bool IsFull()
+        => Tiles.All(t => t.Owner != PlayerType.None);
+
+    public bool IsPlayable()
+        => IsFull() == false && BeenWon() == false;
+
+    public bool IsStillWinnable()
+        => IsFull() == false && BeenWon() == false && RemainingWinConditions() > 0;
+
+    public bool IsStillWinnableBy(PlayerType player)
+        => IsFull() == false && BeenWon() == false && RemainingWinConditionsFor(player) > 0;
+
+    public int RemainingWinConditions()
+        => WinConditions.Count(WinnableCondition());
+
+    public int RemainingWinConditionsFor(PlayerType owner)
+        => WinConditions.Count(wc => wc.IsStillWinnableBy(owner));
 
     public HashSet<Tile> Tiles { get; private set; }
 
@@ -268,89 +290,39 @@ public record Board
         => Tiles = [.. tiles];
 
     public void ChangeTileOwner(Position position, PlayerType owner)
+        => ChangeTileOwner(position.GetTileCode(), owner);
+
+    public void ChangeTileOwner(TileCode tileCode, PlayerType owner)
     {
         Tiles
-            .First(t => t.Position == position)
+            .Single(t => t.Code == tileCode)
             .ChangeOwner(owner);
 
-        foreach (var winCondition in _winConditions)
+        foreach (var winCondition in WinConditions)
         {
-            winCondition.ChangeOwner(position.GetTileCode(), owner);
+            winCondition.ChangeOwner(tileCode, owner);
         }
     }
 
-    public Tile GetWinningTile(PlayerType owner)
+    public BoardValue Evaluate()
     {
-        var winCondition = _winConditions
-            .FirstOrDefault(wc => wc.IsStillWinnableBy(owner));
+        var evaluatedBoard = BoardValue.Empty(this);
 
-        if (winCondition == null)
+        foreach (var tile in Tiles.Where(t => t.Owner == PlayerType.None))
         {
-            return null;
+            var currentRatings = PlayableWinConditions()
+                .Where(wc => wc.Conditions.Contains(tile.Code))
+                .Select(wc => wc.Rating());
+
+            var tileValue = TileValue.Empty(tile);
+            tileValue.Append(currentRatings);
+
+            evaluatedBoard.Append(tileValue);
         }
 
-        _gameIO.LogInfo($"Found a win condition for {owner}, {string.Join(',', winCondition.Conditions)}, {winCondition}.", LogType.Selection);
-
-        var emptyTiles = Tiles.Where(t => t.Owner == PlayerType.None);
-        _gameIO.LogInfo($"Selecting from {string.Join(',', emptyTiles.Select(t => t.Code))} empty tiles.", LogType.Selection);
-
-        var winningTile = emptyTiles.FirstOrDefault(t => winCondition.Conditions.Contains(t.Code));
-        _gameIO.LogInfo($"Selected winning tile of `{winningTile.Code}`.", LogType.Selection);
-
-        return winningTile;
-    }
-
-    internal static Tile GetBestOfTheRest(Board board)
-    {
-        var possibleWinConditions = board._winConditions
-            .Where(wc => wc.Opponents == 0);
-
-        var bestRatedTiles = board.Tiles
-            .Where(t => t.Owner == PlayerType.None)
-            .Select(t => new { Count = possibleWinConditions.Count(wt => wt.Conditions.Contains(t.Code)), Tile = t })
-            .GroupBy(g => g.Count, v => v, (g, v) => new { Count = g, Tiles = v.ToList() });
-
-        var bestTiles = bestRatedTiles.OrderByDescending(bt => bt.Count).First();
-
-        var rnd = new Random();
-        return bestTiles.Tiles[rnd.Next(bestTiles.Tiles.Count)].Tile;
-    }
-
-    internal static Tile GetRandom(Board board)
-    {
-        var rnd = new Random();
-
-        var emptyTiles = board.Tiles
-            .Where(t => t.Owner == PlayerType.None)
-            .ToList();
-        var pick = rnd.Next(emptyTiles.Count);
-
-        return emptyTiles[pick];
-    }
-
-    private static IEnumerable<(int Rating, Func<Board, Tile> Rule)> _ratedRules =
-    [
-        (200, b => b.GetWinningTile(PlayerType.Me)), // win
-        (100, b => b.GetWinningTile(PlayerType.Opponent)), // block
-        (10, GetBestOfTheRest),
-        (1, GetRandom),
-    ];
-
-    public (int Rating, Tile BestTile) GetBestTile()
-    {
-        foreach (var (rating, rule) in _ratedRules)
-        {
-            var bestTile = rule(this);
-            if (bestTile is not null)
-            {
-                return (rating, bestTile);
-            }
-        }
-
-        return (0, null);
+        return evaluatedBoard;
     }
 }
-
 
 public record Position(int Row, int Col)
 {
@@ -423,6 +395,29 @@ public record WinCondition(TileCode[] Conditions)
 
     public int Opponents { get; private set; } = 0;
 
+    public PlayerValue Rating()
+    {
+        if (IsPlayable() == false)
+        {
+            return PlayerValue.NotPlayable();
+        }
+
+        if (IsStillWinnable() == false)
+        {
+            return PlayerValue.NotWinnableByEitherPlayer();
+        }
+
+        if (Free == 3)
+        {
+            return PlayerValue.NothingPlayed();
+        }
+
+        return PlayerValue.AssessValue(this);
+    }
+
+    public bool IsPlayable()
+        => Free > 0;
+
     public bool IsStillWinnable()
     {
         if (Free == 0)
@@ -438,8 +433,10 @@ public record WinCondition(TileCode[] Conditions)
         return true;
     }
 
-    public bool IsStillWinnableBy(PlayerType owner)
-        => IsStillWinnable() && CheckWinState(has => has > 1, owner);
+    public bool IsStillWinnableBy(PlayerType owner) =>
+        IsStillWinnable() &&
+        CheckWinState(has => has >= 0, owner) &&
+        CheckWinState(has => has == 0, owner.GetOtherPlayer());
 
     public bool WinnableInOneMoveBy(PlayerType owner)
     {
@@ -497,6 +494,142 @@ public record WinCondition(TileCode[] Conditions)
 public record Turn(int Number, Position MyMove, Position OpponentsLastMove, IEnumerable<Position> ValidMoves)
 { }
 
+public record PlayerValue(int MyValue, int OpponentsValue)
+{
+    public static PlayerValue Empty()
+        => new(0, 0);
+
+    public static PlayerValue NotPlayable()
+        => new(0, 0);
+
+    public static PlayerValue NotWinnableByEitherPlayer()
+        => new(0, 0);
+
+    public static PlayerValue NothingPlayed()
+        => new(1, 1);
+
+    public static PlayerValue AssessValue(WinCondition winCondition)
+    {
+        if (winCondition.IsStillWinnableBy(PlayerType.Me))
+        {
+            return new PlayerValue(100 * winCondition.Mine, 10 * winCondition.Mine);
+        }
+
+        if (winCondition.IsStillWinnableBy(PlayerType.Opponent))
+        {
+            return new PlayerValue(10 * winCondition.Opponents, 100 * winCondition.Opponents);
+        }
+
+        return NothingPlayed();
+    }
+};
+
+public record TileValue(TileCode TileCode, Tile Tile)
+{
+    public static TileValue Empty(Tile tile)
+        => new(tile.Code, tile);
+
+    public int MyValue { get; private set; } = 0;
+
+    public int OpponentValue { get; private set; } = 0;
+
+    public void Append(IEnumerable<PlayerValue> winConditionValues)
+    {
+        MyValue += winConditionValues.Sum(wc => wc.MyValue);
+        OpponentValue += winConditionValues.Sum(wc => wc.OpponentsValue);
+    }
+}
+
+public record BoardValue(TileCode TileCode, Board Board)
+{
+    public static BoardValue Empty(Board board)
+        => new(board.Code, board);
+
+    private Dictionary<TileCode, TileValue> _tileValues = [];
+
+    public int MyValue => _tileValues.Sum(kv => kv.Value.MyValue);
+
+    public int OpponentValue => _tileValues.Sum(kv => kv.Value.OpponentValue);
+
+    public IEnumerable<TileValue> Tiles
+        => _tileValues.Values;
+
+    public TileValue BestFor(PlayerType player)
+    {
+        return _tileValues
+            .OrderByDescending(tv => player == PlayerType.Me ? tv.Value.MyValue : tv.Value.OpponentValue)
+            .First().Value;
+    }
+
+    public void Append(TileValue tileValue)
+    {
+        if (_tileValues.ContainsKey(tileValue.TileCode) == false)
+        {
+            _tileValues.Add(tileValue.TileCode, tileValue);
+        }
+    }
+}
+
+public record MoveEvaluator
+{
+    private Dictionary<TileCode, BoardValue> _evaluatedBoards;
+
+    public MoveEvaluator(IEnumerable<BoardValue> evaluatedBoards)
+    {
+        _evaluatedBoards = evaluatedBoards.ToDictionary(k => k.TileCode, v => v);
+    }
+
+    public IEnumerable<MoveValue> EvaluateAll()
+    {
+        var evaluatedMoves = new List<MoveValue>();
+
+        foreach (var board in _evaluatedBoards.Values)
+        {
+            var myBestMove = board.BestFor(PlayerType.Me);
+            var oppenentsSelectedBoard = SelectBoardFor(myBestMove.TileCode, PlayerType.Opponent);
+            var oppenentsBestNextMove = oppenentsSelectedBoard.BestFor(PlayerType.Opponent);
+
+            evaluatedMoves.Add(new MoveValue(board.TileCode, myBestMove, oppenentsBestNextMove));
+        }
+
+        return evaluatedMoves;
+    }
+
+    public IEnumerable<MoveValue> EvaluateFor(Board board)
+    {
+        var evaluatedMoves = new List<MoveValue>();
+        var evaludatedBoard = SelectBoardFor(board.Code, PlayerType.Me);
+
+        foreach (var tile in evaludatedBoard.Tiles)
+        {
+            var oppenentsSelectedBoard = SelectBoardFor(tile.TileCode, PlayerType.Opponent);
+            var oppenentsBestNextMove = oppenentsSelectedBoard.BestFor(PlayerType.Opponent);
+
+            evaluatedMoves.Add(new MoveValue(board.Code, tile, oppenentsBestNextMove));
+        }
+
+        return evaluatedMoves;
+    }
+
+    private BoardValue SelectBoardFor(TileCode tileCode, PlayerType player)
+    {
+        if (_evaluatedBoards.TryGetValue(tileCode, out var selectedBoard))
+        {
+            return selectedBoard;
+        }
+
+        return _evaluatedBoards
+            .OrderByDescending(eb => eb.Value.OpponentValue)
+            .First()
+            .Value;
+    }
+}
+
+public record MoveValue(TileCode MoveOn, TileValue MyMove, TileValue OpponentsMove)
+{
+    public int Delta => MyMove.MyValue - OpponentsMove.OpponentValue;
+}
+
 public static class Helper
 {
     public static readonly (int[] Sets, char RowCode, char ColCode)[] TilePositionCodes =
@@ -520,6 +653,28 @@ public static class Helper
 
         return Enum.Parse<TileCode>(tileCode);
     }
+
+    public static PlayerType GetOtherPlayer(this PlayerType playerType) => playerType switch
+    {
+        PlayerType.Me => PlayerType.Opponent,
+        PlayerType.Opponent => PlayerType.Me,
+        _ => PlayerType.None,
+    };
+}
+
+public class Settings
+{
+    public static readonly List<WinCondition> WinConditions =
+    [
+        new([TileCode.TL, TileCode.TM, TileCode.TR]),
+        new([TileCode.ML, TileCode.MM, TileCode.MR]),
+        new([TileCode.BL, TileCode.BM, TileCode.BR]),
+        new([TileCode.TL, TileCode.ML, TileCode.BL]),
+        new([TileCode.TM, TileCode.MM, TileCode.BM]),
+        new([TileCode.TR, TileCode.MR, TileCode.BR]),
+        new([TileCode.TL, TileCode.MM, TileCode.BR]),
+        new([TileCode.TR, TileCode.MM, TileCode.BL]),
+    ];
 }
 
 public enum PlayerType
@@ -586,7 +741,8 @@ public enum LogType : int
     Board = 2,
     Turn = 4,
     ValidMoves = 8,
-    Selection,
+    Selection = 16,
+    RuleEvaluation = 32,
     Basic = Setup | Board | Turn | Selection,
-    All = Setup | Board | Turn | ValidMoves | Selection,
+    All = Setup | Board | Turn | ValidMoves | Selection | RuleEvaluation,
 }

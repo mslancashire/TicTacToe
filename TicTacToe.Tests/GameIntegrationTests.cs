@@ -97,9 +97,53 @@ public class GameIntegrationTests : BaseTestForGame
         // assert - check end turn state
         Game.Turns.Should().HaveCount(1);
         Game.CurrentTurn.MyMove.Should().NotBeNull();
-        Game.CurrentTurn.MyMove.ShouldBe(4, 4);
+        Game.CurrentTurn.MyMove.ShouldBe(0, 0);
         GetIssuedInstructions()
-            .FirstIs("4 4")
+            .FirstIs("0 0")
             .NoMore();
+    }
+
+    [Fact]
+    public void Changing_the_owner_of_a_tile_should_update_the_tile_and_win_conditions()    
+    {
+        // arrange
+        SetInputFromFile("Board_1_Turn.txt");
+
+        var move = new Position(4, 4);
+
+        // act
+        Game.ChangeTileOwner(move, PlayerType.Me);
+
+        // assert
+        var tile = Game.Tiles.First(t => t.Position == move);
+        tile.Owner.Should().Be(PlayerType.Me);
+
+        var board = Game.GetBoard(move);
+        board.Tiles.Any(t => t.Code == tile.Code).Should().BeTrue();
+        board.BeenWon().Should().BeFalse();
+        board.IsPlayable().Should().BeTrue();
+        board.IsFull().Should().BeFalse();
+
+        var relevantWCs = board.WinConditions.Where(wc => wc.Conditions.Contains(move.GetTileCode()));
+        relevantWCs.Should().NotBeEmpty();
+        relevantWCs.Should().HaveCount(4);
+        relevantWCs.Should().AllSatisfy(wc => wc.Conditions.Should().HaveCount(3));
+        relevantWCs.Should().AllSatisfy(wc => wc.Free.Should().Be(2));
+        relevantWCs.Should().AllSatisfy(wc => wc.Mine.Should().Be(1));
+        relevantWCs.Should().AllSatisfy(wc => wc.Opponents.Should().Be(0));
+        relevantWCs.Should().AllSatisfy(wc => wc.IsStillWinnable().Should().BeTrue());
+        relevantWCs.Should().AllSatisfy(wc => wc.IsStillWinnableBy(PlayerType.Me).Should().BeTrue());
+        relevantWCs.Should().AllSatisfy(wc => wc.IsStillWinnableBy(PlayerType.Opponent).Should().BeFalse());
+
+        board.RemainingWinConditions().Should().Be(8);
+        board.RemainingWinConditionsFor(PlayerType.Me).Should().Be(8);
+        board.RemainingWinConditionsFor(PlayerType.Opponent).Should().Be(4);
+
+        var evaluatedBoard = board.Evaluate();
+        evaluatedBoard.MyValue.Should().Be(812);
+        var bestTile = evaluatedBoard.BestFor(PlayerType.Me);
+
+        var validCodes = new[] { TileCode.TL, TileCode.TR, TileCode.BL, TileCode.BR };
+        validCodes.Should().Contain(bestTile.TileCode);
     }
 }

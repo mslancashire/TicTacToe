@@ -17,14 +17,17 @@ public class WinConditionTests
 
         sut.IsStillWinnable().Should().BeTrue();
 
-        sut.IsStillWinnableBy(PlayerType.Me).Should().BeFalse();
-        sut.IsStillWinnableBy(PlayerType.Opponent).Should().BeFalse();
+        sut.IsStillWinnableBy(PlayerType.Me).Should().BeTrue();
+        sut.IsStillWinnableBy(PlayerType.Opponent).Should().BeTrue();
 
         sut.WinnableInOneMoveBy(PlayerType.Me).Should().BeFalse();
         sut.WinnableInOneMoveBy(PlayerType.Opponent).Should().BeFalse();
 
         sut.WonBy(PlayerType.Me).Should().BeFalse();
         sut.WonBy(PlayerType.Opponent).Should().BeFalse();
+        var rating = sut.Rating();
+        rating.MyValue.Should().Be(1);
+        rating.OpponentsValue.Should().Be(1);
     }
 
     [Fact]
@@ -53,6 +56,9 @@ public class WinConditionTests
 
         sut.WonBy(PlayerType.Me).Should().BeTrue();
         sut.WonBy(PlayerType.Opponent).Should().BeFalse();
+        var rating = sut.Rating();
+        rating.MyValue.Should().Be(0);
+        rating.OpponentsValue.Should().Be(0);
     }
 
     [Fact]
@@ -81,6 +87,9 @@ public class WinConditionTests
 
         sut.WonBy(PlayerType.Me).Should().BeFalse();
         sut.WonBy(PlayerType.Opponent).Should().BeTrue();
+        var rating = sut.Rating();
+        rating.MyValue.Should().Be(0);
+        rating.OpponentsValue.Should().Be(0);
     }
 
     [Fact]
@@ -108,6 +117,9 @@ public class WinConditionTests
 
         sut.WonBy(PlayerType.Me).Should().BeFalse();
         sut.WonBy(PlayerType.Opponent).Should().BeFalse();
+        var rating = sut.Rating();
+        rating.MyValue.Should().Be(0);
+        rating.OpponentsValue.Should().Be(0);
     }
 
     [Fact]
@@ -133,6 +145,9 @@ public class WinConditionTests
 
         sut.WonBy(PlayerType.Me).Should().BeFalse();
         sut.WonBy(PlayerType.Opponent).Should().BeFalse();
+        var rating = sut.Rating();
+        rating.MyValue.Should().Be(200);
+        rating.OpponentsValue.Should().Be(20);
     }
 
     [Fact]
@@ -158,5 +173,8 @@ public class WinConditionTests
 
         sut.WonBy(PlayerType.Me).Should().BeFalse();
         sut.WonBy(PlayerType.Opponent).Should().BeFalse();
+        var rating = sut.Rating();
+        rating.MyValue.Should().Be(20);
+        rating.OpponentsValue.Should().Be(200);
     }
 }
